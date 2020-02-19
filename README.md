@@ -13,6 +13,14 @@ cabal install --dependencies-only
 
 ## If you're not
 
+- install [Docker](https://www.docker.com/)
+- type this:
+
+```
+cd base-image
+docker build -t ghcide .
+```
+
 - install [Visual Studio Code](https://code.visualstudio.com/download)
 - install the "Remote - Containers" extension: click on the
   "Extensions" icon on the left, search for "Containers", select
