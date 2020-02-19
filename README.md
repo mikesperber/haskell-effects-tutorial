@@ -13,7 +13,7 @@ cabal install --dependencies-only
 
 ## If you're not
 
-- install [https://code.visualstudio.com/download](Visual Studio Code)
+- install [Visual Studio Code](https://code.visualstudio.com/download)
 - install the "Remote - Containers" extension: click on the
   "Extensions" icon on the left, search for "Containers", select
   "Remote - Containers", click  on install
