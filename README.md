@@ -7,20 +7,12 @@ To prepare for the tutorial, you have two choices:
 ## If you're proficient with Haskell and have Haskell and have cabal installed
 
 ```
-cd vscode-folder
 cabal install --dependencies-only
 ```
 
 ## If you're not
 
 - install [Docker](https://www.docker.com/)
-- type this:
-
-```
-cd base-image
-docker build -t ghcide .
-```
-
 - install [Visual Studio Code](https://code.visualstudio.com/download)
 - install the "ghcide" extension: click on the
   "Extensions" icon on the left, search for "ghcide", select
@@ -31,12 +23,7 @@ docker build -t ghcide .
 - click on the files icon in the upper-left corner
 - click on the "View" item, select "Command Palette", type
   "containers", select "Remote - Containers: Open Folder in Container"
-- select the `vscode-folder` folder
-- in the terminal that comes up, type
-
-```
-cabal install --dependencies-only
-```
+- select this folder
 
 ## If you run into problems
 
