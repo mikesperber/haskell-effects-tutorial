@@ -4,7 +4,7 @@
 
 To prepare for the tutorial, you have two choices:
 
-## If you're proficient with Haskell and have Haskell and have cabal installed
+## If you're proficient with Haskell and have Haskell and cabal installed
 
 ```
 cabal install --dependencies-only
