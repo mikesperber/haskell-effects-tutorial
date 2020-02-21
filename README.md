@@ -24,6 +24,8 @@ cabal install --dependencies-only
 - click on the "View" item, select "Command Palette", type
   "containers", select "Remote - Containers: Open Folder in Container"
 - select this folder
+- it should say that it's building a docker image; this can take a
+  while (possibly an hour or more, 20mins on my machine)
 
 ## If you run into problems
 
