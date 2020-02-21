@@ -1,4 +1,5 @@
-{-# LANGUAGE TemplateHaskell, LambdaCase, GADTs,ScopedTypeVariables, FlexibleContexts, DataKinds, TypeOperators #-}
+{-# LANGUAGE TemplateHaskell, LambdaCase, GADTs, ScopedTypeVariables, FlexibleContexts, DataKinds, PolyKinds, TypeOperators #-}
+{-# OPTIONS_GHC -fplugin=Polysemy.Plugin #-}
 
 module Polysemy.KVStore
   ( -- * Effect
