@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, LambdaCase #-}
+{-# LANGUAGE TemplateHaskell, LambdaCase, GADTs,ScopedTypeVariables, FlexibleContexts, DataKinds, TypeOperators #-}
 
 module Polysemy.KVStore
   ( -- * Effect
