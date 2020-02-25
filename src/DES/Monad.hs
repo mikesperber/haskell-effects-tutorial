@@ -59,6 +59,11 @@ exponentialDelay mean =
   do u <- Random.getRandom
      return (round (-mean * log u))
   
+evalCondition :: Condition v -> ModelAction v Bool
+evalCondition cond =
+  do modelState <- getModelState
+     return (cond modelState)
+
 data Transition v = Transition { targetEvent :: Event v,
                                  condition :: Condition v,
                                  delay :: Delay }

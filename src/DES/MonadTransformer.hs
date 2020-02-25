@@ -67,6 +67,11 @@ exponentialDelay mean =
   do u <- Random.getRandom
      return (round (-mean * log u))
   
+evalCondition :: Monad m => (ModelState v -> Bool) -> ModelActionT v m Bool
+evalCondition cond =
+  do modelState <- getModelState
+     return (cond modelState)
+
 data Transition v m = Transition { targetEvent :: Event v m,
                                    condition :: Condition v,
                                    delay :: Delay m }
@@ -183,8 +188,8 @@ generateEvents :: Monad m => EventInstance v m -> Simulation v m ()
 generateEvents (EventInstance _ ev) =
   mapM_ (\ tr ->
           do ss <- State.get
-             ms <- State.lift getModelState
-             if condition tr ms then
+             condFired <- State.lift (evalCondition (condition tr))
+             if condFired then
                do ss <- State.get
                   d <- State.lift (State.lift (delay tr))
                   let evi = EventInstance ((getCurrentTime (sstateClock ss)) + d) (targetEvent tr)
