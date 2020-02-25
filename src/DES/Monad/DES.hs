@@ -137,77 +137,73 @@ instance Ord (EventInstance v) where
       EQ -> compare (priority e1) (priority e2)
       x -> x
 
-class ReportGenerator r v | r -> v where
-  update :: r -> Time -> ModelState v -> r
-  writeReport :: r -> IO ()
-
 newtype Clock = Clock { getCurrentTime :: Time }
   deriving Show
 
-data SimulationState r v = SimulationState {
-  clock :: Clock,
-  events :: MinHeap (EventInstance v),
-  reportGenerator :: r,
-  modelState :: ModelState v,
-  randomGenerator :: Random.StdGen
+data SimulationState v = SimulationState {
+  sstateClock :: Clock,
+  sstateEvents :: MinHeap (EventInstance v),
+  sstateReport :: Report v,
+  sstateModelState :: ModelState v,
+  sstateRandomGenerator :: Random.StdGen
 }
 
-type Simulation r v = State (SimulationState r v)
+type Simulation v = State (SimulationState v)
 
-setCurrentTime :: Time -> Simulation r v ()
-setCurrentTime t = State.modify (\ ss -> ss { clock = Clock t })
+setCurrentTime :: Time -> Simulation v () 
+setCurrentTime t = State.modify (\ ss -> ss { sstateClock = Clock t })
 
-getNextEvent :: Simulation r v (EventInstance v)
+getNextEvent :: Simulation v (EventInstance v)
 getNextEvent =
   do ss <- State.get
-     case Heap.view (events ss) of
+     case Heap.view (sstateEvents ss) of
        Just (ev, evs') ->
-         do State.put (ss { events = evs' })
+         do State.put (ss { sstateEvents = evs' })
             return ev
        Nothing -> undefined
 
-updateModelState :: EventInstance v -> Simulation r v ()
+updateModelState :: EventInstance v -> Simulation v ()
 updateModelState (EventInstance _ ev) =
   do ss <- State.get
-     let ms = State.execState (sequence_ (stateChanges ev)) (modelState ss)
-     State.put (ss { modelState = ms })
+     let ms = State.execState (sequence_ (stateChanges ev)) (sstateModelState ss)
+     State.put (ss { sstateModelState = ms })
 
 -- FIXME: Don't update incrementally, instead do everything based on consistent old state.
 
-updateStatisticalCounters :: ReportGenerator r v => EventInstance v -> Simulation r v ()
+updateStatisticalCounters :: Ord v => EventInstance v -> Simulation v ()
 updateStatisticalCounters (EventInstance t _) =
   do ss <- State.get
-     State.put (ss {reportGenerator = update (reportGenerator ss) t (modelState ss) })
+     State.put (ss { sstateReport = updateReport (sstateReport ss) t (sstateModelState ss) })
 
-generateEvents :: EventInstance v -> Simulation r v ()
+generateEvents :: EventInstance v -> Simulation v ()
 generateEvents (EventInstance _ ev) =
   mapM_ (\ tr ->
           do ss <- State.get
-             let ms = modelState ss
+             let ms = sstateModelState ss
              if condition tr ms then
                do ss <- State.get
-                  let (d, rg) = Random.runRand (delay tr) (randomGenerator ss)
-                  let evi = EventInstance ((getCurrentTime (clock ss)) + d) (targetEvent tr)
-                  let evs' = Heap.insert evi (events ss)
-                  State.put (ss { events = evs', randomGenerator = rg })
+                  let (d, report) = Random.runRand (delay tr) (sstateRandomGenerator ss)
+                  let evi = EventInstance ((getCurrentTime (sstateClock ss)) + d) (targetEvent tr)
+                  let evs' = Heap.insert evi (sstateEvents ss)
+                  State.put (ss { sstateEvents = evs', sstateRandomGenerator = report })
              else
                return ())
          (transitions ev)
 
-timingRoutine :: Simulation r v (EventInstance v)
+timingRoutine :: Simulation v (EventInstance v)
 timingRoutine =
   do result <- getNextEvent
      let (EventInstance t e) = result
      setCurrentTime t
      return result
 
-simulation :: ReportGenerator r v => Time -> Simulation r v ()
+simulation :: Ord v => Time -> Simulation v ()
 simulation endTime =
   let loop =
         do ss <- State.get
-           if ((getCurrentTime (clock ss)) <= endTime) && not (Heap.null (events ss)) then
+           if ((getCurrentTime (sstateClock ss)) <= endTime) && not (Heap.null (sstateEvents ss)) then
              do currentEvent <- timingRoutine
-                -- seq (unsafePerformIO (putStrLn (show currentEvent))) (updateModelState currentEvent)
+                -- seq (unsafePesstateRformIO (putStrLn (show currentEvent))) (updateModelState currentEvent)
                 updateModelState currentEvent
                 updateStatisticalCounters currentEvent
                 generateEvents currentEvent
@@ -216,65 +212,53 @@ simulation endTime =
              return ()
   in loop
 
-runSimulation :: ReportGenerator r v => Simulation r v () -> Model v -> Time -> r -> r
-runSimulation sim model clock rg =
+runSimulation :: Simulation v () -> Model v -> Time -> Report v -> Report v
+runSimulation sim model clock rep =
   let clock = Clock 0
       initialEvent = EventInstance (getCurrentTime clock) (startEvent model)
       eventList = Heap.singleton initialEvent
       ss = SimulationState {
-             clock = clock,
-             events = eventList,
-             reportGenerator = rg,
-             modelState = Map.empty,
-             randomGenerator = mkStdGen 0
-           }
+              sstateClock = clock,
+              sstateEvents = eventList,
+              sstateReport = rep,
+              sstateModelState = Map.empty,
+              sstateRandomGenerator = mkStdGen 0
+      }
       ss' = State.execState sim ss
-  in reportGenerator ss'
+  in sstateReport ss'
 
+main = writeReport (runSimulation (simulation 100) (minimalModel ()) 0 initialReport)
 
 -- Report generator
 
-data Value = Value {
+data Value v = Value {
   valueTime :: Time,
-  valueValue :: Maybe Integer,
-  valueMin :: Maybe Integer,
-  valueMax :: Maybe Integer,
-  valueAverage :: Double
+  valueValue :: Maybe v,
+  valueMin :: Maybe v,
+  valueMax :: Maybe v
 }
 
 defaultValue = Value {
   valueMin = Nothing,
   valueMax = Nothing,
-  valueAverage = 0.0,
   valueValue = Nothing,
   valueTime = 0
   }
   
-updateAvg :: Value -> Time -> Integer -> Double
-updateAvg value currentTime currentValue =
-  case valueValue value of
-    Just v ->
-      if currentTime /= 0 then
-        ((valueAverage value) * (fromInteger (valueTime value))
-         + ((fromInteger currentTime) - (fromInteger (valueTime value))) * (fromInteger v))
-        / (fromInteger currentTime)
-      else
-        valueAverage value
-    Nothing -> valueAverage value
-
-valueWithCurrent :: Value -> Time -> Integer -> Value
+valueWithCurrent :: Ord v => Value v -> Time -> v -> Value v
 valueWithCurrent value t v =
   value { valueMin = valueNewMin value v,
           valueMax = valueNewMax value v,
-          valueAverage = updateAvg value t v,
           valueTime = t,
           valueValue = Just v }
 
+valueNewMin :: Ord v => Value v -> v -> Maybe v
 valueNewMin value current =
   case valueMin value of
     Just m -> Just (min current m)
     Nothing -> Just current
 
+valueNewMax :: Ord v => Value v -> v -> Maybe v
 valueNewMax value current =
   max (Just current) (valueMax value)
 
@@ -284,7 +268,7 @@ valueHeader :: String
 valueHeader =
   "Time" ++ separator ++ "Value" ++ separator ++ "Min" ++ separator ++ "Max" ++ separator ++ "Avg" ++ separator
 
-instance Show Value where
+instance Show v => Show (Value v) where
   show value =
     let sm x = case x of
           Just v -> show v
@@ -293,37 +277,37 @@ instance Show Value where
       (show (valueTime value)) ++ separator ++
       (sm (valueValue value)) ++ separator ++
       (sm (valueMin value)) ++ separator ++
-      (sm (valueMax value)) ++ separator ++
-      (show (valueAverage value)) ++ separator
+      (sm (valueMax value)) ++ separator
          
-data FullReportGenerator = FullReportGenerator {
-  reportValues :: Map String Value,
-  reportHistory :: Seq (Map String Value)
+data Report v = Report {
+  reportValues :: Map String (Value v),
+  reportHistory :: Seq (Map String (Value v))
   } deriving Show
 
-fullReportGenerator = FullReportGenerator { reportValues = Map.empty, reportHistory = Sequence.empty }
+initialReport :: Report v
+initialReport = Report { reportValues = Map.empty, reportHistory = Sequence.empty }
 
-instance ReportGenerator FullReportGenerator Integer where
-  update frg t ms =
-    let vals =
-          Map.foldlWithKey (\ vals k v ->
-                             case Map.lookup k ms of
-                               Nothing -> vals
-                               Just current ->
-                                 let val = case Map.lookup k vals of
-                                             Just value -> value
-                                             Nothing -> defaultValue
-                                     val' = valueWithCurrent val t current
-                                 in Map.insert k val' vals)
-             (reportValues frg)
-             ms
-    in frg { reportValues = vals,
-             reportHistory = (reportHistory frg) |> vals }
-       
-  writeReport frg =
-    do putStrLn ("name" ++ separator ++ valueHeader)
-       let putValues vs =
+updateReport :: Ord v => Report v -> Time -> Map String v -> Report v
+updateReport freport t ms =
+  let vals =
+        Map.foldlWithKey (\ vals k v ->
+                            case Map.lookup k ms of
+                              Nothing -> vals
+                              Just current ->
+                                let val = case Map.lookup k vals of
+                                            Just value -> value
+                                            Nothing -> defaultValue
+                                    val' = valueWithCurrent val t current
+                                in Map.insert k val' vals)
+            (reportValues freport)
+            ms
+  in freport { reportValues = vals,
+           reportHistory = (reportHistory freport) |> vals }
+      
+writeReport :: Show v => Report v -> IO ()
+writeReport freport =
+  do putStrLn ("name" ++ separator ++ valueHeader)
+     let putValues vs =
              sequence (Map.mapWithKey (\ k v -> putStrLn (k ++ separator ++ (show v))) vs)
-       
-       mapM_ putValues (reportHistory frg)
+     mapM_ putValues (reportHistory freport)
 
