@@ -1,7 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-module DES.Monad.DES where
+module DES.Monad where
 
 import qualified Control.Monad.State.Strict as State
 import Control.Monad.State.Strict (State)
