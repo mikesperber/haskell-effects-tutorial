@@ -1,7 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-module DES.Monad where
+module DES.MonadTransformer where
 
 import qualified Control.Monad.State.Strict as State
 import Control.Monad.State.Strict (State)
@@ -182,10 +182,10 @@ generateEvents (EventInstance _ ev) =
              let ms = sstateModelState ss
              if condition tr ms then
                do ss <- State.get
-                  let (d, rg) = Random.runRand (delay tr) (sstateRandomGenerator ss)
+                  let (d, report) = Random.runRand (delay tr) (sstateRandomGenerator ss)
                   let evi = EventInstance ((getCurrentTime (sstateClock ss)) + d) (targetEvent tr)
                   let evs' = Heap.insert evi (sstateEvents ss)
-                  State.put (ss { sstateEvents = evs', sstateRandomGenerator = rg })
+                  State.put (ss { sstateEvents = evs', sstateRandomGenerator = report })
              else
                return ())
          (transitions ev)
