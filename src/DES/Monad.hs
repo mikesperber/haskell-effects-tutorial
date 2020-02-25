@@ -266,7 +266,7 @@ separator = ";\t"
 
 valueHeader :: String
 valueHeader =
-  "Time" ++ separator ++ "Value" ++ separator ++ "Min" ++ separator ++ "Max" ++ separator ++ "Avg" ++ separator
+  "Time" ++ separator ++ "Value" ++ separator ++ "Min" ++ separator ++ "Max" ++ separator
 
 instance Show v => Show (Value v) where
   show value =
