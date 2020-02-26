@@ -62,7 +62,7 @@ zeroDelay = return 0
 constantDelay :: Monad m => Integer -> Delay m
 constantDelay v = return v
 
-exponentialDelay :: Double -> Delay (Random.Rand Random.StdGen)
+exponentialDelay :: Double -> Delay Random
 exponentialDelay mean =
   do u <- Random.getRandom
      return (round (-mean * log u))
@@ -221,8 +221,8 @@ simulation endTime =
              return ()
   in loop
 
-runSimulation :: Monad m => Simulation v m () -> Model v m -> p -> Report v -> m (Report v)
-runSimulation sim model clock rep =
+runSimulation :: Monad m => Simulation v m () -> Model v m -> Report v -> m (Report v)
+runSimulation sim model rep =
   let clock = Clock 0
       initialEvent = EventInstance (getCurrentTime clock) (startEvent model)
       eventList = Heap.singleton initialEvent
@@ -235,7 +235,7 @@ runSimulation sim model clock rep =
         return (sstateReport ss')
 
 main = 
-  writeReport (runRandom (runSimulation (simulation 100) (minimalModel ()) 0 initialReport))
+  writeReport (runRandom (runSimulation (simulation 100) (minimalModel ()) initialReport))
 
 -- Report generator
 

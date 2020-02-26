@@ -214,8 +214,8 @@ simulation endTime =
              return ()
   in loop
 
-runSimulation :: Simulation v () -> Model v -> Time -> Report v -> Report v
-runSimulation sim model clock rep =
+runSimulation :: Simulation v () -> Model v -> Report v -> Report v
+runSimulation sim model rep =
   let clock = Clock 0
       initialEvent = EventInstance (getCurrentTime clock) (startEvent model)
       eventList = Heap.singleton initialEvent
@@ -229,7 +229,7 @@ runSimulation sim model clock rep =
       ss' = State.execState sim ss
   in sstateReport ss'
 
-main = writeReport (runSimulation (simulation 100) (minimalModel ()) 0 initialReport)
+main = writeReport (runSimulation (simulation 100) (minimalModel ()) initialReport)
 
 -- Report generator
 
