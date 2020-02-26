@@ -1,8 +1,20 @@
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE OverlappingInstances #-}
+{-# LANGUAGE UndecidableInstances #-}
+
 module DES.MTL where
 
+import Control.Monad.Trans
 import qualified Control.Monad.State.Strict as State
 import Control.Monad.State.Strict (State, StateT)
 import qualified Control.Monad.Random as Random
+import Control.Monad.Identity
 import System.Random (mkStdGen)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
@@ -14,8 +26,26 @@ import System.IO.Unsafe (unsafePerformIO)
 
 type ModelState v = Map String v
 
+class Monad m => ModelActionMonad m v | m -> v where
+  currentModelState :: m (ModelState v)
+  modifyValue :: String -> (v -> v) -> m ()
+  evalCondition :: (ModelState v -> Bool) -> m Bool
+
 -- Model monad
 type ModelActionT v m = StateT (ModelState v) m
+
+instance Monad m => ModelActionMonad (ModelActionT v m) v where
+  currentModelState = State.get
+  modifyValue name f = State.modify (\ ms -> Map.adjust (\ v -> f  v) name ms)
+  evalCondition cond =
+    do modelState <- currentModelState
+       return (cond modelState)
+
+-- need UndecidableInstances
+instance (MonadTrans t, Monad (t m), ModelActionMonad m v) => ModelActionMonad (t m) v where
+  currentModelState = lift currentModelState
+  modifyValue name f = lift (modifyValue name f)
+  evalCondition cond = lift (evalCondition cond)
 
 runModelAction :: Monad m => ModelActionT v m a -> m a
 runModelAction action =
@@ -25,17 +55,17 @@ runRandom :: Random a -> a
 runRandom action =
   Random.evalRand action (mkStdGen 0)
 
-getModelState :: Monad m => ModelActionT v m (ModelState v)
-getModelState = State.get
+getModelState_ :: Monad m => ModelActionT v m (ModelState v)
+getModelState_ = State.get
 
-getValue :: Monad m => String -> ModelActionT v m v
-getValue name =
+getValue_ :: Monad m => String -> ModelActionT v m v
+getValue_ name =
   do ms <- State.get
      let (Just v) = Map.lookup name ms
      return v
 
-modifyValue :: Monad m => String -> (v -> v) -> ModelActionT v m ()
-modifyValue name f =
+modifyValue_ :: Monad m => String -> (v -> v) -> ModelActionT v m ()
+modifyValue_ name f =
   State.modify (\ ms -> Map.adjust (\ v -> f  v) name ms)
   
 data Model v m = Model {
@@ -62,15 +92,10 @@ zeroDelay = return 0
 constantDelay :: Monad m => Integer -> Delay m
 constantDelay v = return v
 
-exponentialDelay :: Double -> Delay (Random.Rand Random.StdGen)
+exponentialDelay :: Double -> Delay Random
 exponentialDelay mean =
   do u <- Random.getRandom
      return (round (-mean * log u))
-  
-evalCondition :: Monad m => (ModelState v -> Bool) -> ModelActionT v m Bool
-evalCondition cond =
-  do modelState <- getModelState
-     return (cond modelState)
 
 data Transition v m = Transition { targetEvent :: Event v m,
                                    condition :: Condition v,
@@ -79,23 +104,23 @@ data Transition v m = Transition { targetEvent :: Event v m,
 nullTransition:: Monad m => () -> Transition v m
 nullTransition () = Transition { targetEvent = undefined, condition = trueCondition, delay = zeroDelay }
 
-type StateChangeT v m = ModelActionT v m ()
+type StateChangeT_ v m = ModelActionT v m ()
 
-setValue :: Monad m => String -> v -> StateChangeT v m
+setValue :: ModelActionMonad m v => String -> v -> m ()
 setValue name value =
-  do ms <- State.get
-     State.put (Map.insert name value ms)
+  modifyValue name (const value)
 
-incrementValue :: Monad m => Num v => String -> v -> StateChangeT v m
+incrementValue :: (ModelActionMonad m v, Num v) => String -> v -> m ()
 incrementValue name inc =
-  do ms <- State.get
-     let (Just v) = Map.lookup name ms
-     setValue name (v + inc)
+  modifyValue name (\ v -> v + inc)
 
-data Event v m = Event { name :: String,
-                         priority :: Int,
-                         transitions :: [Transition v m],
-                         stateChanges :: [StateChangeT v m] }
+data Event v m where
+    Event :: ModelActionMonad m v =>
+          { name :: String,
+            priority :: Int,
+            transitions :: [Transition v m],
+            stateChanges :: [m ()] }
+     -> Event v m
 
 instance Eq (Event v m) where
   e1 == e2 = (name e1) == (name e2)
@@ -103,13 +128,17 @@ instance Eq (Event v m) where
 instance Show (Event v m) where
   show e = "Event { name = " ++ (name e) ++ " }"
 
-event = Event { name = "UNKNOWN", priority = 0, transitions = [], stateChanges = [] }
 
+unknownEvent :: ModelActionMonad m v => () -> Event v m
+unknownEvent () = Event { name = "UNKNOWN", priority = 0, transitions = [], stateChanges = [] }
+
+minimalModel :: (Ord v, Num v, ModelActionMonad m v) => () -> Model v m
 minimalModel () = -- () is because we're parameterized over monad
   let queue = "Queue"
       serverCapacity = "ServerCapacity"
       serviceTime = constantDelay 6
       interarrivalTime = constantDelay 5
+      event = unknownEvent ()
       runEvent = event { name = "RUN",
                          transitions = [runToEnter],
                          stateChanges = [setValue serverCapacity 1,
@@ -158,12 +187,14 @@ data SimulationState v m = SimulationState {
   sstateReport :: Report v
 }
 
-type Simulation v m = StateT (SimulationState v m) (ModelActionT v m)
+type Simulation_ v m = StateT (SimulationState v m) (ModelActionT v m)
 
-setCurrentTime :: Monad m => Time -> Simulation v m () 
+type SimulationStateMonad v m = State.MonadState (SimulationState v m) m
+
+setCurrentTime :: State.MonadState (SimulationState v m) m => Time -> m ()
 setCurrentTime t = State.modify (\ ss -> ss { sstateClock = Clock t })
 
-getNextEvent :: Monad m => Simulation v m (EventInstance v m)
+getNextEvent :: SimulationStateMonad v m => m (EventInstance v m)
 getNextEvent =
   do ss <- State.get
      case Heap.view (sstateEvents ss) of
@@ -172,26 +203,26 @@ getNextEvent =
             return ev
        Nothing -> undefined
 
-updateModelState :: Monad m => EventInstance v m -> Simulation v m ()
+updateModelState :: Monad m => EventInstance v m -> m ()
 updateModelState (EventInstance _ ev) =
-  State.lift (sequence_ (stateChanges ev))
+  sequence_ (stateChanges ev)
 
 -- FIXME: Don't update incrementally, instead do everything based on consistent old state.
 
-updateStatisticalCounters :: (Ord v, Monad m) => EventInstance v m -> Simulation v m ()
+updateStatisticalCounters :: (SimulationStateMonad v m, ModelActionMonad m v, Ord v) => EventInstance v m -> m ()
 updateStatisticalCounters (EventInstance t _) =
   do ss <- State.get
-     modelState <- State.lift State.get
+     modelState <- currentModelState
      State.put (ss { sstateReport = updateReport (sstateReport ss) t modelState })
 
-generateEvents :: Monad m => EventInstance v m -> Simulation v m ()
+generateEvents :: (SimulationStateMonad v m, ModelActionMonad m v) => EventInstance v m -> m ()
 generateEvents (EventInstance _ ev) =
   mapM_ (\ tr ->
           do ss <- State.get
-             condFired <- State.lift (evalCondition (condition tr))
+             condFired <- evalCondition (condition tr)
              if condFired then
                do ss <- State.get
-                  d <- State.lift (State.lift (delay tr))
+                  d <- delay tr
                   let evi = EventInstance ((getCurrentTime (sstateClock ss)) + d) (targetEvent tr)
                   let evs' = Heap.insert evi (sstateEvents ss)
                   State.put (ss { sstateEvents = evs' })
@@ -199,14 +230,14 @@ generateEvents (EventInstance _ ev) =
                return ())
          (transitions ev)
 
-timingRoutine :: Monad m => Simulation v m (EventInstance v m)
+timingRoutine :: SimulationStateMonad v m => m (EventInstance v m)
 timingRoutine =
   do result <- getNextEvent
      let (EventInstance t e) = result
      setCurrentTime t
      return result
 
-simulation :: (Ord v, Monad m) => Time -> Simulation v m ()
+simulation :: (SimulationStateMonad v m, ModelActionMonad m v, Ord v) => Time -> m ()
 simulation endTime =
   let loop =
         do ss <- State.get
@@ -221,8 +252,8 @@ simulation endTime =
              return ()
   in loop
 
-runSimulation :: Monad m => Simulation v m () -> Model v m -> p -> Report v -> m (Report v)
-runSimulation sim model clock rep =
+runSimulation :: Monad m => StateT (SimulationState v m) (StateT (ModelState v) m) () -> Model v m -> Report v -> m (Report v)
+runSimulation sim model rep =
   let clock = Clock 0
       initialEvent = EventInstance (getCurrentTime clock) (startEvent model)
       eventList = Heap.singleton initialEvent
@@ -234,8 +265,14 @@ runSimulation sim model clock rep =
   in do ss' <- runModelAction (State.execStateT sim ss)
         return (sstateReport ss')
 
+{- FAIL:
 main = 
-  writeReport (runRandom (runSimulation (simulation 100) (minimalModel ()) 0 initialReport))
+  -- writeReport (runRandom (runSimulation (simulation 100) (minimalModel ()) initialReport))
+  let sim :: StateT (SimulationState v m) (StateT (ModelState v) m) ()
+      sim = simulation 100
+      model = minimalModel ()
+  in ()
+-}
 
 -- Report generator
 
