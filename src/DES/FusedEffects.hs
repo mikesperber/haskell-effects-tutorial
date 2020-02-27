@@ -1,15 +1,17 @@
-{-# LANGUAGE GADTs, FlexibleContexts, TypeOperators, DataKinds, PolyKinds #-}
-{-# LANGUAGE LambdaCase, BlockArguments, TypeApplications, ScopedTypeVariables, ConstraintKinds #-}
-{-# OPTIONS_GHC -fplugin=Polysemy.Plugin #-}
+{-# LANGUAGE DeriveFunctor, DeriveGeneric, FlexibleInstances, GeneralizedNewtypeDeriving, MultiParamTypeClasses, TypeOperators, UndecidableInstances #-}
+{-# LANGUAGE ScopedTypeVariables, GADTs, FlexibleContexts, ConstraintKinds, TypeApplications #-}
 
 
 module DES.FusedEffects where
 
-import Polysemy
-import Polysemy.Internal (send)
-import Polysemy.State
-import qualified Polysemy.State as State
-import Polysemy.Random
+
+import Control.Effect.Class
+import Control.Algebra
+import Control.Effect.Sum
+import Control.Monad.Identity
+import Control.Carrier.State.Strict
+import qualified Control.Carrier.State.Strict as State
+import GHC.Generics (Generic1)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Sequence as Sequence
@@ -20,30 +22,47 @@ import System.IO.Unsafe (unsafePerformIO)
 
 type ModelState v = Map String v
 
-data ModelAction v m a where
-  CurrentModelState :: ModelAction v m (ModelState v)
-  ModifyValue :: String -> (v -> v) -> ModelAction v m ()
-  EvalCondition :: (ModelState v -> Bool) -> ModelAction v m Bool
+data ModelAction v m k =
+    CurrentModelState (ModelState v -> m k)
+  | ModifyValue String (v -> v) (m k)
+  | EvalCondition (ModelState v -> Bool) (Bool -> m k)
+  deriving (Functor, Generic1)
 
-currentModelState :: Member (ModelAction v) r => Sem r (ModelState v)
-currentModelState = send CurrentModelState
+instance HFunctor (ModelAction v)
+instance Effect (ModelAction v)
 
-modifyValue :: Member (ModelAction v) r => String -> (v -> v) -> Sem r ()
-modifyValue name f = send (ModifyValue name f)
+currentModelState :: Has (ModelAction v) sig m => m (ModelState v)
+currentModelState = send (CurrentModelState pure)
 
-evalCondition :: Member (ModelAction v) r => (ModelState v -> Bool) -> Sem r Bool
-evalCondition cond = send (EvalCondition cond)
+modifyValue :: Has (ModelAction v) sig m => String -> (v -> v) -> m ()
+modifyValue name f = send (ModifyValue name f (pure ()))
 
-runModelAction' :: Sem (ModelAction v ': r) a -> Sem (State (ModelState v) ': r) a
-runModelAction' = 
-  reinterpret (\case CurrentModelState -> State.get
-                     ModifyValue name f -> State.modify (\ ms -> Map.adjust (\ v -> f  v) name ms)
-                     EvalCondition cond ->
-                       do modelState <- State.get
-                          return (cond modelState))
+evalCondition :: Has (ModelAction v) sig m => (ModelState v -> Bool) -> m Bool
+evalCondition cond = send (EvalCondition cond pure)
 
-runModelAction :: Sem (ModelAction v ': r) a -> Sem r a
-runModelAction action = State.evalState Map.empty (runModelAction' action)
+newtype ModelActionStateC v m a = ModelActionStateC { runModelActionStateC :: StateC (ModelState v) m a }
+  deriving (Applicative, Functor, Monad)
+
+instance (Algebra sig m, Effect sig) => Algebra (ModelAction v :+: sig) (ModelActionStateC v m) where
+  alg (L (CurrentModelState k)) =
+    do modelState <- ModelActionStateC State.get
+       k modelState
+  alg (L (ModifyValue name f k)) =
+    ModelActionStateC (State.modify (\ ms -> Map.adjust (\ v -> f  v) name ms)) *> k
+  alg (L (EvalCondition cond k)) =
+    do modelState <- ModelActionStateC State.get
+       k (cond modelState)
+  alg (R other) = ModelActionStateC (alg (R (handleCoercible other)))
+
+runModelAction :: Functor m => ModelActionStateC v m a -> m a
+runModelAction action = State.evalState Map.empty (runModelActionStateC action)
+
+{-
+bar :: ModelActionStateC Int Identity ()
+bar = modifyValue "foo" (\ (foo :: Int) -> foo)
+
+bar' = run (runModelAction bar)
+-}
 
 data Model v r = Model {
   modelName :: String,
@@ -60,45 +79,46 @@ largerThanValueCondition name value ms =
   let (Just value') = Map.lookup name ms
   in  value' > value
 
-type Delay r = Sem r Integer
+type Delay m = m Integer
 
-zeroDelay :: Delay r
+zeroDelay :: Monad m => Delay m
 zeroDelay = return 0
-constantDelay :: Integer -> Delay r
+constantDelay :: Monad m => Integer -> Delay m
 constantDelay v = return v
 
 {-
 type Random = Random.Rand Random.StdGen
--}
+
 exponentialDelay :: Member Random r => Double -> Delay r
 exponentialDelay mean =
   do u <- random
      return (round (-mean * log u))
+-}
 
-data Transition v r = Transition { targetEvent :: Event v r,
+data Transition v m = Transition { targetEvent :: Event v m,
                                    condition :: Condition v,
-                                   delay :: Delay r }
+                                   delay :: Delay m }
 
-nullTransition:: () -> Transition v r
+nullTransition:: Monad m => () -> Transition v m
 nullTransition () = Transition { targetEvent = undefined, condition = trueCondition, delay = zeroDelay }
 
 -- type StateChangeT_ v m = ModelActionT v m ()
 
-setValue :: Member (ModelAction v) r => String -> v -> Sem r ()
+setValue :: Has (ModelAction v) sig m => String -> v -> m ()
 setValue name value =
   modifyValue name (const value)
 
-incrementValue :: (Member (ModelAction v) r, Num v) => String -> v -> Sem r ()
+incrementValue :: (Has (ModelAction v) sig m, Num v) => String -> v -> m ()
 incrementValue name inc =
   modifyValue name (\ v -> v + inc)
 
-data Event v r where
-    Event :: Member (ModelAction v) r =>
+data Event v m where
+    Event :: Has (ModelAction v) sig m =>
           { name :: String,
             priority :: Int,
-            transitions :: [Transition v r],
-            stateChanges :: [Sem r ()] }
-     -> Event v r
+            transitions :: [Transition v m],
+            stateChanges :: [m ()] }
+     -> Event v m
 
 instance Eq (Event v m) where
   e1 == e2 = (name e1) == (name e2)
@@ -107,10 +127,10 @@ instance Show (Event v m) where
   show e = "Event { name = " ++ (name e) ++ " }"
 
 
-unknownEvent :: Member (ModelAction v) r => () -> Event v r
+unknownEvent :: Has (ModelAction v) sig m => () -> Event v m
 unknownEvent () = Event { name = "UNKNOWN", priority = 0, transitions = [], stateChanges = [] }
 
-minimalModel :: Member (ModelAction Integer) r => () -> Model Integer r
+minimalModel :: Has (ModelAction Integer) sig m => () -> Model Integer m
 minimalModel () = -- () is because we're parameterized over monad
   let queue = "Queue"
       serverCapacity = "ServerCapacity"
@@ -145,8 +165,6 @@ minimalModel () = -- () is because we're parameterized over monad
       
   in Model "MinimalModel" runEvent
 
-type Time = Integer
-
 data EventInstance v r = EventInstance Time (Event v r)
   deriving (Show, Eq)
 
@@ -159,20 +177,28 @@ instance Ord (EventInstance v r) where
 newtype Clock = Clock { getCurrentTime :: Time }
   deriving Show
 
-data SimulationState v r = SimulationState {
+data SimulationState v m = SimulationState {
   sstateClock :: Clock,
-  sstateEvents :: MinHeap (EventInstance v r),
+  sstateEvents :: MinHeap (EventInstance v m),
   sstateReport :: Report v
 }
 
+
 -- type Simulation_ v m = StateT (SimulationState v m) (ModelActionT v m)
 
-type SimulationStateEffect v rm rs = (rs ~ (State (SimulationState v rm) ': rm), Member (ModelAction v) rm)
+-- type SimulationStateEffect v rm rs = (rs ~ (State (SimulationState v rm) ': rm), Member (ModelAction v) rm)
 
-setCurrentTime :: SimulationStateEffect v rm rs => Time -> Sem rs ()
-setCurrentTime t = modify (\ ss -> ss { sstateClock = Clock t })
+type SimulationStateEffect v mm sig ms = (Member (ModelAction v) sig, Algebra sig mm, Algebra (State (SimulationState v mm) :+: sig) ms)
 
-getNextEvent :: SimulationStateEffect v rm rs => Sem rs (EventInstance v rm)
+-- FAILED:
+-- type SimulationStateEffect v mm sigm ms sigs = (Has (ModelAction v) sigm mm, Has (State (SimulationState v mm)) sigs ms, Members sigm sigs)
+
+-- NOTE: needs type annotation
+setCurrentTime :: forall v mm sig ms . SimulationStateEffect v mm sig ms => Time -> ms ()
+setCurrentTime t = State.modify (\ (ss :: SimulationState v mm) -> ss { sstateClock = Clock t })
+
+
+getNextEvent :: SimulationStateEffect v mm sig ms => ms (EventInstance v mm)
 getNextEvent =
   do ss <- State.get
      case Heap.view (sstateEvents ss) of
@@ -181,24 +207,27 @@ getNextEvent =
             return ev
        Nothing -> undefined
 
-updateModelState :: EventInstance v r -> Sem r ()
+updateModelState :: Monad mm => EventInstance v mm -> mm ()
 updateModelState (EventInstance _ ev) =
   sequence_ (stateChanges ev)
 
-updateStatisticalCounters :: (SimulationStateEffect v rm rs, Ord v) => EventInstance v rm -> Sem rs ()
+updateStatisticalCounters :: forall v mm sig ms . (SimulationStateEffect v mm sig ms, Ord v) => EventInstance v mm -> ms ()
 updateStatisticalCounters (EventInstance t _) =
-  do ss <- State.get
+  do ss <- State.get @(SimulationState v mm) -- NOTE: needed
      modelState <- currentModelState
      State.put (ss { sstateReport = updateReport (sstateReport ss) t modelState })
 
-generateEvents :: SimulationStateEffect v rm rs => EventInstance v rm -> Sem rs ()
+lift :: SimulationStateEffect v mm sig ms => mm a -> ms a
+lift delay = undefined -- NOTE: BORKED!
+
+generateEvents :: forall v mm sig ms . SimulationStateEffect v mm sig ms => EventInstance v mm -> ms ()
 generateEvents (EventInstance _ ev) =
-  mapM_ (\ tr ->
-          do ss <- State.get
+  mapM_ (\ tr -> 
+          do ss <- State.get @(SimulationState v mm) -- NOTE: needed
              condFired <- evalCondition (condition tr)
              if condFired then
                do ss <- State.get
-                  d <- raise (delay tr) -- NOTE: try removing this
+                  d <- lift (delay tr)
                   let evi = EventInstance ((getCurrentTime (sstateClock ss)) + d) (targetEvent tr)
                   let evs' = Heap.insert evi (sstateEvents ss)
                   State.put (ss { sstateEvents = evs' })
@@ -206,21 +235,21 @@ generateEvents (EventInstance _ ev) =
                return ())
          (transitions ev)
 
-timingRoutine :: SimulationStateEffect v rm rs => Sem rs (EventInstance v rm)
+timingRoutine :: SimulationStateEffect v mm sig ms => ms (EventInstance v mm)
 timingRoutine =
   do result <- getNextEvent
      let (EventInstance t e) = result
      setCurrentTime t
      return result
 
-simulation :: (SimulationStateEffect v rm rs, Ord v) => Time -> Sem rs ()
+simulation :: forall v mm sig ms . (SimulationStateEffect v mm sig ms, Ord v) => Time -> ms ()
 simulation endTime =
   let loop =
-        do ss <- State.get
+        do ss <- State.get @(SimulationState v mm) -- NOTE: needed
            if ((getCurrentTime (sstateClock ss)) <= endTime) && not (Heap.null (sstateEvents ss)) then
              do currentEvent <- timingRoutine
                 -- seq (unsafePesstateRformIO (putStrLn (show currentEvent))) (updateModelState currentEvent)
-                raise (updateModelState currentEvent) -- NOTE: which ones to raise ...
+                lift (updateModelState currentEvent) -- NOTE: which ones to raise ...
                 updateStatisticalCounters currentEvent
                 generateEvents currentEvent
                 loop
@@ -228,7 +257,8 @@ simulation endTime =
              return ()
   in loop
 
-runSimulation :: Sem (State (SimulationState v rm) : ModelAction v : r) a -> Model v rm -> Report v -> Sem r (Report v)
+
+runSimulation :: (Monad m, mm ~ ModelActionStateC v m) => StateC (SimulationState v mm) mm a -> Model v mm -> Report v -> m (Report v)
 runSimulation sim model rep =
   let clock = Clock 0
       initialEvent = EventInstance (getCurrentTime clock) (startEvent model)
@@ -240,10 +270,13 @@ runSimulation sim model rep =
       }
   in do ss' <- runModelAction (State.execState ss sim)
         return (sstateReport ss')
+
 main = 
-  writeReport (run (runSimulation (simulation 100) (minimalModel ()) initialReport))
+  let sim = simulation 100 :: mm ~ ModelActionStateC Integer Identity => StateC (SimulationState Integer mm) (ModelActionStateC Integer Identity) ()
+  in writeReport (run (runSimulation sim (minimalModel ()) initialReport))
 
 -- Report generator
+type Time = Integer
 
 data Value v = Value {
   valueTime :: Time,
