@@ -255,7 +255,7 @@ simulation endTime =
            if ((getCurrentTime (sstateClock ss)) <= endTime) && not (Heap.null (sstateEvents ss)) then
              do currentEvent <- timingRoutine
                 -- seq (unsafePesstateRformIO (putStrLn (show currentEvent))) (updateModelState currentEvent)
-                lift (updateModelState currentEvent) -- NOTE: which ones to raise ...
+                raise (updateModelState currentEvent) -- NOTE: which ones to raise ...
                 updateStatisticalCounters currentEvent
                 generateEvents currentEvent
                 loop
