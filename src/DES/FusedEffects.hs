@@ -8,6 +8,7 @@ module DES.FusedEffects where
 import Control.Effect.Class
 import Control.Algebra
 import Control.Effect.Sum
+import Control.Monad.Trans
 import Control.Monad.Identity
 import Control.Carrier.State.Strict
 import qualified Control.Carrier.State.Strict as State
@@ -217,8 +218,13 @@ updateStatisticalCounters (EventInstance t _) =
      modelState <- currentModelState
      State.put (ss { sstateReport = updateReport (sstateReport ss) t modelState })
 
-lift :: SimulationStateEffect v mm sig ms => mm a -> ms a
-lift delay = undefined -- NOTE: BORKED!
+raise :: SimulationStateEffect v mm sig ms => mm a -> ms a
+raise delay = undefined -- NOTE: BORKED!
+
+-- this gives:
+-- Could not deduce (Monad (t0 mm)) arising from a use of ‘mapM_’
+-- raise :: (MonadTrans t, Monad (t m), Algebra sig m, Algebra (eff :+: sig) (t m)) => m a -> t m a
+-- raise = lift
 
 generateEvents :: forall v mm sig ms . SimulationStateEffect v mm sig ms => EventInstance v mm -> ms ()
 generateEvents (EventInstance _ ev) =
@@ -227,7 +233,7 @@ generateEvents (EventInstance _ ev) =
              condFired <- evalCondition (condition tr)
              if condFired then
                do ss <- State.get
-                  d <- lift (delay tr)
+                  d <- raise (delay tr)
                   let evi = EventInstance ((getCurrentTime (sstateClock ss)) + d) (targetEvent tr)
                   let evs' = Heap.insert evi (sstateEvents ss)
                   State.put (ss { sstateEvents = evs' })
