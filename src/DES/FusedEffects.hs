@@ -9,6 +9,7 @@ import Control.Effect.Class
 import Control.Algebra
 import Control.Effect.Sum
 import Control.Monad.Trans
+import Control.Monad.Trans.State (StateT)
 import Control.Monad.Identity
 import Control.Carrier.State.Strict
 import qualified Control.Carrier.State.Strict as State
@@ -189,7 +190,7 @@ data SimulationState v m = SimulationState {
 
 -- type SimulationStateEffect v rm rs = (rs ~ (State (SimulationState v rm) ': rm), Member (ModelAction v) rm)
 
-type SimulationStateEffect v mm sig ms = (Member (ModelAction v) sig, Algebra sig mm, Algebra (State (SimulationState v mm) :+: sig) ms)
+type SimulationStateEffect v mm sig ms = (Member (ModelAction v) sig, Algebra sig mm, ms ~ StateT (SimulationState v mm) mm, Algebra (State (SimulationState v mm) :+: sig) ms)
 
 -- FAILED:
 -- type SimulationStateEffect v mm sigm ms sigs = (Has (ModelAction v) sigm mm, Has (State (SimulationState v mm)) sigs ms, Members sigm sigs)
@@ -219,7 +220,7 @@ updateStatisticalCounters (EventInstance t _) =
      State.put (ss { sstateReport = updateReport (sstateReport ss) t modelState })
 
 raise :: SimulationStateEffect v mm sig ms => mm a -> ms a
-raise delay = undefined -- NOTE: BORKED!
+raise delay = lift delay
 
 -- this gives:
 -- Could not deduce (Monad (t0 mm)) arising from a use of ‘mapM_’
@@ -277,9 +278,9 @@ runSimulation sim model rep =
   in do ss' <- runModelAction (State.execState ss sim)
         return (sstateReport ss')
 
-main = 
-  let sim = simulation 100 :: mm ~ ModelActionStateC Integer Identity => StateC (SimulationState Integer mm) (ModelActionStateC Integer Identity) ()
-  in writeReport (run (runSimulation sim (minimalModel ()) initialReport))
+-- but putting this together forces me to replace StateC by StateT in ModelActionStateC
+-- main = 
+--   writeReport (run (runSimulation (simulation 100) (minimalModel ()) initialReport))
 
 -- Report generator
 type Time = Integer
