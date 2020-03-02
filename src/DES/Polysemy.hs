@@ -110,7 +110,7 @@ instance Show (Event v m) where
 unknownEvent :: Member (ModelAction v) r => () -> Event v r
 unknownEvent () = Event { name = "UNKNOWN", priority = 0, transitions = [], stateChanges = [] }
 
-minimalModel :: Member (ModelAction Integer) r => () -> Model Integer r
+minimalModel :: (Num v, Ord v) => Member (ModelAction v) r => () -> Model v r
 minimalModel () = -- () is because we're parameterized over monad
   let queue = "Queue"
       serverCapacity = "ServerCapacity"
