@@ -174,6 +174,7 @@ getNextEvent =
 
 updateModelState :: Monad m => EventInstance v m -> Simulation v m ()
 updateModelState (EventInstance _ ev) =
+  -- lift :: m a -> (t m) a
   State.lift (sequence_ (stateChanges ev))
 
 -- FIXME: Don't update incrementally, instead do everything based on consistent old state.
