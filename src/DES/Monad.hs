@@ -184,6 +184,7 @@ generateEvents (EventInstance _ ev) =
              let ms = sstateModelState ss
              if condition tr ms then
                do ss <- State.get
+                  -- d <- delay tr
                   let (d, rg) = Random.runRand (delay tr) (sstateRandomGenerator ss)
                   let evi = EventInstance ((getCurrentTime (sstateClock ss)) + d) (targetEvent tr)
                   let evs' = Heap.insert evi (sstateEvents ss)
