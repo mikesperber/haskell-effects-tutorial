@@ -5,10 +5,13 @@ module Free where
 data It i a =
     Done a
   | Get (i -> It i a)
+  | Put (() -> It i a)
   deriving (Functor, Applicative)
 
-ask::It  i i
+ask:: It  i i
 ask = Get Done
+
+-- do env <- ask
 
 (>>>) :: Monad m => (a -> m b) -> (b -> m c) -> (a -> m c)
 f >>> g = (>>= g) . f
@@ -38,6 +41,11 @@ type FIit i a = Free (Reader i) a
 data FFree f a where
     FPure :: a -> FFree f a
     FImpure :: f a -> (a -> FFree f b) -> FFree f b
+
+data FReader i x where
+  FFGet :: FReader i i
+
+type IT i a = FFree (FReader i) a
 
 instance Functor (FFree f) where
 
