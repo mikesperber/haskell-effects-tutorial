@@ -218,13 +218,11 @@ updateStatisticalCounters (EventInstance t _) =
      modelState <- currentModelState
      State.put (ss { sstateReport = updateReport (sstateReport ss) t modelState })
 
-raise :: SimulationStateEffect v mm sig ms => mm a -> ms a
-raise delay = lift delay
+-- raise :: SimulationStateEffect v mm sig ms => mm a -> ms a
+-- raise delay = lift delay
 
--- this gives:
--- Could not deduce (Monad (t0 mm)) arising from a use of ‘mapM_’
--- raise :: (MonadTrans t, Monad (t m), Algebra sig m, Algebra (eff :+: sig) (t m)) => m a -> t m a
--- raise = lift
+raise :: (MonadTrans t, Algebra sig m, Algebra (eff :+: sig) (t m)) => m a -> t m a
+raise = lift
 
 generateEvents :: forall v mm sig ms . SimulationStateEffect v mm sig ms => EventInstance v mm -> ms ()
 generateEvents (EventInstance _ ev) =
