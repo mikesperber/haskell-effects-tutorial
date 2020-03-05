@@ -55,18 +55,6 @@ runRandom :: Random a -> a
 runRandom action =
   Random.evalRand action (mkStdGen 0)
 
-getModelState_ :: Monad m => ModelActionT v m (ModelState v)
-getModelState_ = State.get
-
-getValue_ :: Monad m => String -> ModelActionT v m v
-getValue_ name =
-  do ms <- State.get
-     let (Just v) = Map.lookup name ms
-     return v
-
-modifyValue_ :: Monad m => String -> (v -> v) -> ModelActionT v m ()
-modifyValue_ name f =
-  State.modify (\ ms -> Map.adjust (\ v -> f  v) name ms)
   
 data Model v m = Model {
   modelName :: String,
@@ -264,6 +252,8 @@ runSimulation sim model rep =
       }
   in do ss' <- runModelAction (State.execStateT sim ss)
         return (sstateReport ss')
+
+-- main = writeReport (runRandom (runSimulation (simulation 100) (minimalModel ()) initialReport))
 
 {- FAIL:
 main = 
