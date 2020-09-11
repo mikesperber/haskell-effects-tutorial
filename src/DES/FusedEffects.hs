@@ -1,17 +1,21 @@
-{-# LANGUAGE DeriveFunctor, DeriveGeneric, FlexibleInstances, GeneralizedNewtypeDeriving, MultiParamTypeClasses, TypeOperators, UndecidableInstances #-}
-{-# LANGUAGE ScopedTypeVariables, GADTs, FlexibleContexts, ConstraintKinds, TypeApplications #-}
 
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances, ScopedTypeVariables, TypeApplications, ConstraintKinds, FlexibleContexts #-}
 
 module DES.FusedEffects where
 
-
-import Control.Effect.Class
 import Control.Algebra
 import Control.Effect.Sum
 import Control.Monad.Trans
 import Control.Monad.Identity
 import Control.Carrier.State.Strict
 import qualified Control.Carrier.State.Strict as State
+import Data.Kind (Type)
 import GHC.Generics (Generic1)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
@@ -23,37 +27,33 @@ import System.IO.Unsafe (unsafePerformIO)
 
 type ModelState v = Map String v
 
-data ModelAction v m k =
-    CurrentModelState (ModelState v -> m k)
-  | ModifyValue String (v -> v) (m k)
-  | EvalCondition (ModelState v -> Bool) (Bool -> m k)
-  deriving (Functor, Generic1)
-
-instance HFunctor (ModelAction v)
-instance Effect (ModelAction v)
+data ModelAction v (m :: Type -> Type) k where
+  CurrentModelState :: ModelAction v m (ModelState v)
+  ModifyValue :: String -> (v -> v) -> ModelAction v m ()
+  EvalCondition :: (ModelState v -> Bool) -> ModelAction v m Bool
 
 currentModelState :: Has (ModelAction v) sig m => m (ModelState v)
-currentModelState = send (CurrentModelState pure)
+currentModelState = send CurrentModelState
 
 modifyValue :: Has (ModelAction v) sig m => String -> (v -> v) -> m ()
-modifyValue name f = send (ModifyValue name f (pure ()))
+modifyValue name f = send (ModifyValue name f)
 
 evalCondition :: Has (ModelAction v) sig m => (ModelState v -> Bool) -> m Bool
-evalCondition cond = send (EvalCondition cond pure)
+evalCondition cond = send (EvalCondition cond)
 
 newtype ModelActionStateC v m a = ModelActionStateC { runModelActionStateC :: StateC (ModelState v) m a }
   deriving (Applicative, Functor, Monad)
 
-instance (Algebra sig m, Effect sig) => Algebra (ModelAction v :+: sig) (ModelActionStateC v m) where
-  alg (L (CurrentModelState k)) =
-    do modelState <- ModelActionStateC State.get
-       k modelState
-  alg (L (ModifyValue name f k)) =
-    ModelActionStateC (State.modify (\ ms -> Map.adjust (\ v -> f  v) name ms)) *> k
-  alg (L (EvalCondition cond k)) =
-    do modelState <- ModelActionStateC State.get
-       k (cond modelState)
-  alg (R other) = ModelActionStateC (alg (R (handleCoercible other)))
+instance (Algebra sig m) => Algebra (ModelAction v :+: sig) (ModelActionStateC v m) where
+  alg hdl sig ctx = case sig of
+    L CurrentModelState -> 
+       (<$ ctx) <$> (ModelActionStateC State.get)
+    L (ModifyValue name f) ->
+      ctx <$ (ModelActionStateC (State.modify (\ ms -> Map.adjust (\ v -> f  v) name ms)))
+    L (EvalCondition cond) ->
+      (<$ ctx) <$> (cond <$> ModelActionStateC State.get)
+    R other -> ModelActionStateC (alg (runModelActionStateC . hdl) (R other) ctx)
+
 
 runModelAction :: Functor m => ModelActionStateC v m a -> m a
 runModelAction action = State.evalState Map.empty (runModelActionStateC action)
