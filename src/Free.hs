@@ -2,21 +2,20 @@
 
 module Free where
 
-data It i a =
+import Control.Monad.Identity
+
+data Reader1 env a =
     Done a
-  | Get (i -> It i a)
-  | Put (() -> It i a)
+  | Get (env -> Reader1 env a)
   deriving (Functor, Applicative)
 
-ask:: It  i i
-ask = Get Done
-
--- do env <- ask
+ask1 :: Reader1 env env
+ask1 = Get Done
 
 (>>>) :: Monad m => (a -> m b) -> (b -> m c) -> (a -> m c)
 f >>> g = (>>= g) . f
 
-instance Monad (It i) where
+instance Monad (Reader1 env) where
     return = Done
 
     Done x >>= k = k x
@@ -33,10 +32,25 @@ instance Functor f => Monad (Free f) where
     (Pure a) >>= k = k a
     (Impure f) >>= k = Impure (fmap (>>= k) f)
 
-data Reader i x = FGet (i -> x)
+
+data Reader' env knot = FGet (env -> knot)
   deriving Functor
 
-type FIit i a = Free (Reader i) a
+type Reader env a = Free (Reader' env) a
+
+ask :: Reader env env
+ask = Impure (FGet Pure)
+
+runReader :: env -> Reader env a -> a
+runReader _env (Pure result) = result
+runReader env (Impure (FGet f)) = runReader env (f env)
+
+runFree :: Monad m => (f (Free f a) -> (Free f a -> m a) -> m a) -> Free f a -> m a
+runFree _ (Pure result) = return result
+runFree rrr (Impure command) = rrr command (runFree rrr)
+
+runReader' :: env -> Reader env a -> Identity a
+runReader' env m = runFree (\ (FGet cont) r -> r (cont env)) m
 
 data FFree f a where
     FPure :: a -> FFree f a
