@@ -1,6 +1,4 @@
-FROM haskell:8.8.1
-
-RUN cabal update
-RUN git clone https://github.com/digital-asset/ghcide.git
-RUN cd ghcide && cabal configure && cabal install
+FROM haskell:8.8
+RUN git clone --branch v0.2.0 https://github.com/digital-asset/ghcide.git
+RUN cd ghcide && cabal update && cabal configure && cabal install
 

@@ -14,6 +14,7 @@ cabal install --dependencies-only
 ## If you're not
 
 - install [Docker](https://www.docker.com/)
+- on Docker for Mac, give it >=6GB via Preferences -> Resources -> Memory
 - install [Visual Studio Code](https://code.visualstudio.com/download)
 - install the "ghcide" extension: click on the
   "Extensions" icon on the left, search for "ghcide", select
