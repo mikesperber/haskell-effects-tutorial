@@ -171,8 +171,6 @@ data SimulationState v r = SimulationState {
   sstateReport :: Report v
 }
 
--- type Simulation_ v m = StateT (SimulationState v m) (ModelActionT v m)
-
 type SimulationStateEffect v rm rs = (rs ~ (State (SimulationState v rm) ': rm), Member (ModelAction v) rm)
 
 setCurrentTime :: SimulationStateEffect v rm rs => Time -> Sem rs ()
@@ -225,7 +223,6 @@ simulation endTime =
         do ss <- State.get
            if ((getCurrentTime (sstateClock ss)) <= endTime) && not (Heap.null (sstateEvents ss)) then
              do currentEvent <- timingRoutine
-                -- seq (unsafePesstateRformIO (putStrLn (show currentEvent))) (updateModelState currentEvent)
                 raise (updateModelState currentEvent) -- NOTE: which ones to raise ...
                 updateStatisticalCounters currentEvent
                 generateEvents currentEvent

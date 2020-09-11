@@ -66,13 +66,6 @@ instance (Algebra sig m) => Algebra (ModelAction v :+: sig) (ModelActionStateC v
 runModelAction :: Functor m => ModelActionStateC v m a -> m a
 runModelAction action = State.evalState Map.empty (runModelActionStateC action)
 
-{-
-bar :: ModelActionStateC Int Identity ()
-bar = modifyValue "foo" (\ (foo :: Int) -> foo)
-
-bar' = run (runModelAction bar)
--}
-
 data Model v r = Model {
   modelName :: String,
   startEvent :: Event v r
@@ -96,6 +89,7 @@ constantDelay :: Monad m => Integer -> Delay m
 constantDelay v = return v
 
 {-
+-- random numbers are in a separate package
 type Random = Random.Rand Random.StdGen
 
 exponentialDelay :: Member Random r => Double -> Delay r
@@ -110,8 +104,6 @@ data Transition v m = Transition { targetEvent :: Event v m,
 
 nullTransition:: Monad m => () -> Transition v m
 nullTransition () = Transition { targetEvent = undefined, condition = trueCondition, delay = zeroDelay }
-
--- type StateChangeT_ v m = ModelActionT v m ()
 
 setValue :: Has (ModelAction v) sig m => String -> v -> m ()
 setValue name value =
@@ -192,11 +184,6 @@ data SimulationState v m = SimulationState {
   sstateReport :: Report v
 }
 
-
--- type Simulation_ v m = StateT (SimulationState v m) (ModelActionT v m)
-
--- type SimulationStateEffect v rm rs = (rs ~ (State (SimulationState v rm) ': rm), Member (ModelAction v) rm)
-
 type SimulationStateEffect v mm sig ms = (Member (ModelAction v) sig, Algebra sig mm, ms ~ StateC (SimulationState v mm) mm, Algebra (State (SimulationState v mm) :+: sig) ms)
 
 -- FAILED:
@@ -205,7 +192,6 @@ type SimulationStateEffect v mm sig ms = (Member (ModelAction v) sig, Algebra si
 -- NOTE: needs type annotation
 setCurrentTime :: forall v mm sig ms . SimulationStateEffect v mm sig ms => Time -> ms ()
 setCurrentTime t = State.modify (\ (ss :: SimulationState v mm) -> ss { sstateClock = Clock t })
-
 
 getNextEvent :: SimulationStateEffect v mm sig ms => ms (EventInstance v mm)
 getNextEvent =
@@ -260,7 +246,6 @@ simulation endTime =
         do ss <- State.get @(SimulationState v mm) -- NOTE: needed
            if ((getCurrentTime (sstateClock ss)) <= endTime) && not (Heap.null (sstateEvents ss)) then
              do currentEvent <- timingRoutine
-                -- seq (unsafePesstateRformIO (putStrLn (show currentEvent))) (updateModelState currentEvent)
                 ms1 <- raise (currentModelState :: mm (ModelState v)) -- type annotation is needed to pin v down            
                 raise (updateModelState currentEvent) -- NOTE: which ones to raise ...
                 ms2 <- raise (currentModelState :: mm (ModelState v)) -- type annotation is needed to pin v down            
@@ -285,7 +270,6 @@ runSimulation sim model rep =
   in do ss' <- runModelAction (State.execState ss sim)
         return (sstateReport ss')
 
--- but putting this together forces me to replace StateC by StateT in ModelActionStateC
 main = 
    writeReport (run (runSimulation (simulation 100) (minimalModel ()) initialReport))
 

@@ -195,8 +195,6 @@ updateModelState :: Monad m => EventInstance v m -> m ()
 updateModelState (EventInstance _ ev) =
   sequence_ (stateChanges ev)
 
--- FIXME: Don't update incrementally, instead do everything based on consistent old state.
-
 updateStatisticalCounters :: (SimulationStateMonad v m, ModelActionMonad m v, Ord v) => EventInstance v m -> m ()
 updateStatisticalCounters (EventInstance t _) =
   do ss <- State.get
@@ -231,7 +229,6 @@ simulation endTime =
         do ss <- State.get
            if ((getCurrentTime (sstateClock ss)) <= endTime) && not (Heap.null (sstateEvents ss)) then
              do currentEvent <- timingRoutine
-                -- seq (unsafePesstateRformIO (putStrLn (show currentEvent))) (updateModelState currentEvent)
                 updateModelState currentEvent
                 updateStatisticalCounters currentEvent
                 generateEvents currentEvent
