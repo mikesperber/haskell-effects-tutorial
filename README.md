@@ -1,6 +1,7 @@
 # Tutorial "Control Your Effects in Haskell"
 
-... at [BOB 2020](https://bobkonf.de/2020/sperber.html)
+... at [BOB 2020](https://bobkonf.de/2020/sperber.html) and
+[MuniHac 2020](https://munihac.de/2020.html#MichaelSperber).
 
 To prepare for the tutorial, you have two choices:
 
