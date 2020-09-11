@@ -25,7 +25,7 @@ cabal install --dependencies-only
 - click on the files icon in the upper-left corner
 - click on the "View" item, select "Command Palette", type
   "containers", select "Remote - Containers: Open Folder in Container"
-- select this folder
+- select the `prep` or the `live` folder
 - it should say that it's building a docker image; this can take a
   while (possibly an hour or more, 20mins on my machine)
 

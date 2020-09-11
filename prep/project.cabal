@@ -1,0 +1,27 @@
+cabal-version:       3.0
+name:                effects-tutorial
+version:             0.1.0.0
+-- synopsis:
+-- description:
+homepage:            https://github.com/mikesperber/haskell-effects-tutorial
+license:             BSD-3-Clause
+author:              Mike Sperber
+maintainer:          michael.sperber@active-group.de
+copyright:           2020 Michael Sperber
+
+executable effects-examples
+  hs-source-dirs:      src
+  main-is:             Main.hs
+  other-modules:       Free,
+                       DES.Monad, DES.MonadTransformer, DES.MTL, DES.Polysemy, DES.FusedEffects,
+                       Polysemy.Random
+  default-language:    Haskell2010
+  build-depends:       base,
+                       bytestring >= 0.10, containers >= 0.6,
+                       heap >= 1.0, random >= 1.1,
+                       transformers >= 0.5, mtl >= 2.2, MonadRandom >= 0.5,
+                       polysemy >= 1.3, polysemy-plugin >= 0.2.5,
+                       fused-effects >= 1.1,
+                       extensible-effects >= 5.0,
+                       -- capability >= 0.2, generic-lens >= 1.2, primitive >= 0.8,
+                       rio >= 0.1.14
