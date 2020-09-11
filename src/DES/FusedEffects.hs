@@ -27,7 +27,7 @@ import System.IO.Unsafe (unsafePerformIO)
 
 type ModelState v = Map String v
 
-data ModelAction v (m :: Type -> Type) k where
+data ModelAction v (m :: Type -> Type) a where
   CurrentModelState :: ModelAction v m (ModelState v)
   ModifyValue :: String -> (v -> v) -> ModelAction v m ()
   EvalCondition :: (ModelState v -> Bool) -> ModelAction v m Bool
@@ -44,12 +44,20 @@ evalCondition cond = send (EvalCondition cond)
 newtype ModelActionStateC v m a = ModelActionStateC { runModelActionStateC :: StateC (ModelState v) m a }
   deriving (Applicative, Functor, Monad)
 
+modelStateModify :: String -> (v -> v) -> ModelState v -> ModelState v
+modelStateModify name f modelState =
+  let m Nothing = Just (f undefined) -- dangerous
+      m (Just old) = Just (f old)
+  in Map.alter m name modelState
+
 instance (Algebra sig m) => Algebra (ModelAction v :+: sig) (ModelActionStateC v m) where
   alg hdl sig ctx = case sig of
     L CurrentModelState -> 
        (<$ ctx) <$> (ModelActionStateC State.get)
     L (ModifyValue name f) ->
-      ctx <$ (ModelActionStateC (State.modify (\ ms -> Map.adjust (\ v -> f  v) name ms)))
+      do modelState <- ModelActionStateC (State.get :: StateC (ModelState v) m (ModelState v))
+         let modelState' = modelStateModify name f modelState
+         ctx <$ (ModelActionStateC (State.put modelState'))
     L (EvalCondition cond) ->
       (<$ ctx) <$> (cond <$> ModelActionStateC State.get)
     R other -> ModelActionStateC (alg (runModelActionStateC . hdl) (R other) ctx)
@@ -75,7 +83,7 @@ type Condition v = ModelState v -> Bool
 trueCondition :: Condition v
 trueCondition = \ _ -> True
 
-largerThanValueCondition :: Ord a => String -> a -> Condition a
+largerThanValueCondition :: (Show a, Ord a) => String -> a -> Condition a
 largerThanValueCondition name value ms =
   let (Just value') = Map.lookup name ms
   in  value' > value
@@ -246,14 +254,16 @@ timingRoutine =
      setCurrentTime t
      return result
 
-simulation :: forall v mm sig ms . (SimulationStateEffect v mm sig ms, Ord v) => Time -> ms ()
+simulation :: forall v mm sig ms . (SimulationStateEffect v mm sig ms, Ord v, Show v) => Time -> ms ()
 simulation endTime =
   let loop =
         do ss <- State.get @(SimulationState v mm) -- NOTE: needed
            if ((getCurrentTime (sstateClock ss)) <= endTime) && not (Heap.null (sstateEvents ss)) then
              do currentEvent <- timingRoutine
                 -- seq (unsafePesstateRformIO (putStrLn (show currentEvent))) (updateModelState currentEvent)
+                ms1 <- raise (currentModelState :: mm (ModelState v)) -- type annotation is needed to pin v down            
                 raise (updateModelState currentEvent) -- NOTE: which ones to raise ...
+                ms2 <- raise (currentModelState :: mm (ModelState v)) -- type annotation is needed to pin v down            
                 updateStatisticalCounters currentEvent
                 generateEvents currentEvent
                 loop
