@@ -34,10 +34,16 @@ modifyValue name f = send (ModifyValue name f)
 evalCondition :: Member (ModelAction v) r => (ModelState v -> Bool) -> Sem r Bool
 evalCondition cond = send (EvalCondition cond)
 
+modelStateModify :: String -> (v -> v) -> ModelState v -> ModelState v
+modelStateModify name f modelState =
+  let m Nothing = Just (f undefined) -- dangerous
+      m (Just old) = Just (f old)
+  in Map.alter m name modelState
+
 runModelAction' :: Sem (ModelAction v ': r) a -> Sem (State (ModelState v) ': r) a
 runModelAction' = 
   reinterpret (\case CurrentModelState -> State.get
-                     ModifyValue name f -> State.modify (\ ms -> Map.adjust (\ v -> f  v) name ms)
+                     ModifyValue name f -> State.modify (modelStateModify name f)
                      EvalCondition cond ->
                        do modelState <- State.get
                           return (cond modelState))
