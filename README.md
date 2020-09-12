@@ -11,6 +11,8 @@ To prepare for the tutorial, you have two choices:
 cabal install --dependencies-only
 ```
 
+You probably will need ghc 8.8 - Polysemy doesn't work with 8.10.
+
 ## If you're not
 
 - install [Docker](https://www.docker.com/)
